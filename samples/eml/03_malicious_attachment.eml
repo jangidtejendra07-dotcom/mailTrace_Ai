@@ -1,0 +1,26 @@
+From: "Vendor Invoices" <billing@fake-vendor-invoices.com>
+To: "Accounts Payable" <accounts@company.com>
+Subject: Invoice #4471 payment due
+Message-ID: <attach-003@fake-vendor-invoices.com>
+Reply-To: billing@fake-vendor-invoices.com
+Return-Path: <bounce@fake-vendor-invoices.com>
+Received: from unknown (unknown [45.155.205.99])
+    by mx.company.com with SMTP id ghi789; Mon, 01 Sep 2025 11:00:00 +0000
+Authentication-Results: mx.company.com; spf=fail smtp.mailfrom=fake-vendor-invoices.com; dkim=none; dmarc=fail
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="BOUNDARY123"
+
+--BOUNDARY123
+Content-Type: text/plain; charset="utf-8"
+
+Please find attached the invoice for last month's services. Payment is due
+within 7 days.
+
+--BOUNDARY123
+Content-Type: application/octet-stream; name="invoice.pdf.exe"
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment; filename="invoice.pdf.exe"
+
+TVqQAAMAAAAEAAAA//8AALgAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAA4fug4AtAnNIbgBTM0hVGhpcyBwcm9ncmFtIGNhbm5vdCBiZSBydW4gaW4gRE9TIG1vZGUuDQ0KJAAAAAAAAAA=
+
+--BOUNDARY123--

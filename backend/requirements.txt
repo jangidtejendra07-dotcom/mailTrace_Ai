@@ -1,0 +1,33 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+sqlalchemy==2.0.35
+pydantic==2.9.2
+scikit-learn==1.5.2
+joblib==1.4.2
+numpy>=2.0.0
+pandas>=2.2.3
+requests==2.32.3
+reportlab==4.2.5
+dnspython==2.6.1
+tldextract==5.1.2
+python-dotenv==1.0.1
+
+# --- Auth ---
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+pyjwt==2.9.0
+email-validator==2.2.0
+pydantic[email]==2.9.2
+
+# --- Gmail OAuth / API ---
+google-auth==2.35.0
+google-auth-oauthlib==1.2.1
+google-api-python-client==2.149.0
+
+# --- Real-time detection (Gmail watch-renewal background job) ---
+APScheduler==3.10.4
+
+# NOTE: Groq and Gemini are called via plain `requests` (already a
+# dependency above) using their REST APIs directly — no extra SDK needed.
+# This keeps the dependency surface small and the LLM calls fast.

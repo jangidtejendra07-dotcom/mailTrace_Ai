@@ -1,0 +1,21 @@
+From: "John Smith - CEO" <john.smith@company-corp.com>
+To: "Finance Team" <finance@company.com>
+Subject: Urgent wire transfer needed today
+Message-ID: <bec-004@company-corp.com>
+Reply-To: john.ceo.urgent@gmail-secure-mail.com
+Return-Path: <bounce@company-corp.com>
+Received: from unknown (unknown [103.45.12.200])
+    by mx.company.com with SMTP id jkl012; Mon, 01 Sep 2025 12:00:00 +0000
+Authentication-Results: mx.company.com; spf=fail smtp.mailfrom=company-corp.com; dkim=fail; dmarc=fail
+Content-Type: text/plain; charset="utf-8"
+
+Hi,
+
+This is the CEO. I'm in a meeting and can't talk right now, but I need you
+to process an urgent wire transfer of $45,000 to a new vendor account before
+3pm today. This is time sensitive and confidential — please don't discuss
+it with anyone else on the team until it's done.
+
+I'll send the account details shortly. Please confirm once processed.
+
+John

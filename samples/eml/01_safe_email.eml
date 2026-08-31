@@ -1,0 +1,19 @@
+From: "Priya Sharma" <priya.sharma@company.com>
+To: "Team" <team@company.com>
+Subject: Sprint planning agenda for tomorrow
+Message-ID: <safe-001@company.com>
+Reply-To: priya.sharma@company.com
+Return-Path: <priya.sharma@company.com>
+Received: from mail.company.com (mail.company.com [203.0.113.10])
+    by mx.company.com with ESMTP id abc123; Mon, 01 Sep 2025 09:00:00 +0000
+Authentication-Results: mx.company.com; spf=pass smtp.mailfrom=company.com; dkim=pass header.d=company.com; dmarc=pass header.from=company.com
+DKIM-Signature: v=1; a=rsa-sha256; d=company.com; s=default; h=from:to:subject; b=abc123signature
+Content-Type: text/plain; charset="utf-8"
+
+Hi team,
+
+Please find attached the agenda for tomorrow's sprint planning meeting.
+We'll cover backlog grooming, capacity planning, and the Q3 roadmap review.
+
+Thanks,
+Priya

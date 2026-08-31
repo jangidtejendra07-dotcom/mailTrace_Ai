@@ -1,0 +1,45 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: mailtrace-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      # Swap to Postgres by uncommenting below and the db service:
+      # - DATABASE_URL=postgresql+psycopg2://mailtrace:mailtrace@db:5432/mailtrace
+      - DATABASE_URL=sqlite:///./mailtrace.db
+      - FRONTEND_URL=http://localhost:5173
+    volumes:
+      - backend_data:/app
+    # depends_on:
+    #   - db
+
+  frontend:
+    build: ./frontend
+    container_name: mailtrace-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+  # Optional Postgres service — enable this + the DATABASE_URL above for a
+  # production-style setup matching the spec's "Recommended Stack".
+  # db:
+  #   image: postgres:16-alpine
+  #   container_name: mailtrace-db
+  #   environment:
+  #     - POSTGRES_USER=mailtrace
+  #     - POSTGRES_PASSWORD=mailtrace
+  #     - POSTGRES_DB=mailtrace
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - pg_data:/var/lib/postgresql/data
+
+volumes:
+  backend_data:
+  # pg_data:

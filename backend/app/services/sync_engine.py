@@ -1,0 +1,90 @@
+"""
+Shared "fetch one Gmail message -> run pipeline -> save Case -> maybe
+auto-quarantine" logic, used by BOTH:
+  - the manual "Sync Gmail" button (app/routers/gmail.py: POST /sync)
+  - the real-time Pub/Sub webhook (app/routers/webhook.py: POST /webhook)
+
+Keeping this in one place means both paths always behave identically —
+same risk logic, same quarantine rule, same DB shape — so there's no drift
+between "on-demand" and "real-time" detection.
+"""
+import logging
+
+from sqlalchemy.orm import Session
+
+from app.models import Case, GmailAccount
+from app.pipeline import run_pipeline
+from app.services import gmail_service
+from app.config import settings
+
+logger = logging.getLogger("mailtrace.sync_engine")
+
+
+def process_gmail_message(db: Session, user_id: int, account: GmailAccount, creds, msg_id: str) -> dict | None:
+    """Fetches + analyzes one Gmail message, persists it as a Case, and
+    auto-quarantines it if the risk is high enough. Returns a small summary
+    dict for the API response, or None if the message was already processed
+    or could not be parsed (never lets one bad message break a whole sync)."""
+    already = db.query(Case).filter(
+        Case.user_id == user_id, Case.gmail_message_id == msg_id
+    ).first()
+    if already:
+        return None
+
+    try:
+        raw_bytes = gmail_service.fetch_raw_message(creds, msg_id)
+        result = run_pipeline(raw_bytes)
+    except Exception as exc:
+        logger.warning("Skipping unparseable Gmail message %s: %s", msg_id, exc)
+        return None
+
+    case = Case(
+        case_id=result["case_id"],
+        user_id=user_id,
+        source="gmail",
+        gmail_message_id=msg_id,
+        subject=result.get("subject"),
+        from_address=result["sender"]["from_address"],
+        to_address=result["_internal"]["parsed_email"].get("to_header"),
+        classification=result["classification"],
+        decision=result["decision"],
+        final_risk_score=result["risk_score"],
+        ai_result=result["ai"],
+        forensics_result=result["forensics"],
+        url_result={"items": result["urls"]},
+        attachment_result={"items": result["attachments"]},
+        ip_intelligence=result["ip_intelligence"],
+        geolocation=result["geolocation"],
+        risk_fusion={"explanation": result["explanation"]},
+        evidence_hash=result["evidence_hash"],
+        full_response={k: v for k, v in result.items() if k != "_internal"},
+    )
+
+    # --- Auto-quarantine: pull high-risk mail out of the inbox automatically
+    # so the user has to open MailTrace's website to see it. Never deletes.
+    should_quarantine = (
+        result["decision"] in ("QUARANTINE", "BLOCK")
+        and result["risk_score"] >= settings.QUARANTINE_RISK_THRESHOLD
+    )
+    if should_quarantine:
+        try:
+            gmail_service.quarantine_message(creds, msg_id, settings.QUARANTINE_GMAIL_LABEL)
+            case.quarantine_status = "quarantined"
+            import datetime
+            case.quarantined_at = datetime.datetime.utcnow()
+        except Exception as exc:
+            # Don't fail the whole analysis if the label API call hiccups —
+            # the case is still recorded and visible on the website either way.
+            logger.warning("Could not quarantine message %s: %s", msg_id, exc)
+
+    db.add(case)
+    db.flush()  # get any DB-generated defaults without committing yet
+
+    return {
+        "case_id": case.case_id,
+        "subject": case.subject,
+        "from_address": case.from_address,
+        "decision": case.decision,
+        "final_risk_score": case.final_risk_score,
+        "quarantined": case.quarantine_status == "quarantined",
+    }
