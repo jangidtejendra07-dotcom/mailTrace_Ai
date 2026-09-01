@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "MailTrace AI — Gmail Security Popup",
+  "version": "0.1.0",
+  "description": "Shows a draggable, minimizable MailTrace AI security popup when a Gmail message is open.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://mail.google.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["content.js"],
+      "css": ["popup.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "MailTrace AI"
+  }
+}

@@ -6,11 +6,7 @@
   "oauthScopes": [
     "https://www.googleapis.com/auth/gmail.addons.execute",
     "https://www.googleapis.com/auth/gmail.addons.current.message.metadata",
-    "https://www.googleapis.com/auth/script.external_request",
     "https://www.googleapis.com/auth/script.storage"
-  ],
-  "urlFetchWhitelist": [
-    "https://YOUR-BACKEND-URL.example.com/"
   ],
   "gmail": {
     "name": "MailTrace AI",
@@ -18,12 +14,13 @@
     "primaryColor": "#0EA5A4",
     "secondaryColor": "#0F172A",
     "contextualTriggers": [
-      {"unconditional": {}, "onTriggerFunction": "buildAddOn"}
+      {
+        "unconditional": {},
+        "onTriggerFunction": "buildAddOn"
+      }
     ],
-    "homepageTrigger": {"runFunction": "buildHomepage"},
-    "openLinkUrlPrefixes": [
-      "https://YOUR-BACKEND-URL.example.com/",
-      "https://YOUR-FRONTEND-URL.example.com/"
-    ]
+    "homepageTrigger": {
+      "runFunction": "buildHomepage"
+    }
   }
 }

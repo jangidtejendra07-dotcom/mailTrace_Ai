@@ -37,6 +37,40 @@ export default function InboxPage() {
     loadCases()
   }, [loadStatus, loadCases])
 
+  // After Gmail is connected, automatically enable the backend watch.
+  // This removes the need for the user to click "Turn on real-time".
+  // The backend remains responsible for processing incoming mail.
+  useEffect(() => {
+    if (!status?.connected || status.realtime_enabled || watchLoading) return
+
+    let cancelled = false
+
+    async function enableRealtimeAutomatically() {
+      setWatchLoading(true)
+      setError(null)
+
+      try {
+        await startRealtimeWatch()
+        if (!cancelled) await loadStatus()
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err?.response?.data?.detail ||
+            'Could not enable real-time Gmail detection automatically.'
+          )
+        }
+      } finally {
+        if (!cancelled) setWatchLoading(false)
+      }
+    }
+
+    enableRealtimeAutomatically()
+
+    return () => {
+      cancelled = true
+    }
+  }, [status?.connected, status?.realtime_enabled, watchLoading, loadStatus])
+
   useEffect(() => {
     if (searchParams.get('gmail_connected') === '1') {
       loadStatus()

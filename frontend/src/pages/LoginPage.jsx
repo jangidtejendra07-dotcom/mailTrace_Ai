@@ -18,7 +18,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await login(email, password)
-      navigate('/')
+      navigate('/inbox?auto_connect=1')
     } catch (err) {
       setError(err?.response?.data?.detail || 'Login failed. Check your credentials.')
     } finally {

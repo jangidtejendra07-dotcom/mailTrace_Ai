@@ -23,7 +23,7 @@ export default function RegisterPage() {
     setLoading(true)
     try {
       await register(email, password, fullName)
-      navigate('/')
+      navigate('/inbox?auto_connect=1')
     } catch (err) {
       setError(err?.response?.data?.detail || 'Registration failed.')
     } finally {
