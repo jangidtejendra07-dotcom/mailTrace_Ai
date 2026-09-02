@@ -3,6 +3,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://mailtrace-ai-backend.onrender.com/api/:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }
