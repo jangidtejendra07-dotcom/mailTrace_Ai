@@ -1,6 +1,8 @@
+from unittest import case
+
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
-
+from app.services.blockchain import blockchain_service
 from app.database import get_db
 from app.models import Case, User
 from app.pipeline import run_pipeline
@@ -47,7 +49,21 @@ async def analyze_email(
         evidence_hash=result["evidence_hash"],
         full_response={k: v for k, v in result.items() if k != "_internal"},
     )
+
     db.add(case)
+    db.commit()
+
+    blockchain_result = blockchain_service.record_evidence(
+        case_id=case.case_id,
+        evidence_hash=case.evidence_hash,
+        event_type="EMAIL_ANALYZED",
+    )
+
+    case.blockchain_status = blockchain_result.get("status")
+    case.blockchain_tx_hash = blockchain_result.get("transaction_hash")
+    case.blockchain_block_number = blockchain_result.get("block_number")
+    case.blockchain_event_hash = case.evidence_hash
+
     db.commit()
 
     response = {k: v for k, v in result.items() if k != "_internal"}

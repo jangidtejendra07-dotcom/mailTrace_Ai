@@ -1,5 +1,5 @@
 import datetime
-
+from app.services.blockchain import blockchain_service
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -84,6 +84,33 @@ def _get_owned_case(case_id: str, db: Session, current_user: User) -> Case:
 def get_case(case_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     case = _get_owned_case(case_id, db, current_user)
     return case.full_response
+
+@router.get("/cases/{case_id}/blockchain/verify")
+def verify_case_blockchain(
+    case_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    case = _get_owned_case(case_id, db, current_user)
+
+    if not case.evidence_hash:
+        raise HTTPException(
+            status_code=400,
+            detail="This case has no evidence hash.",
+        )
+
+    result = blockchain_service.verify_evidence(
+        case_id=case.case_id,
+        evidence_hash=case.evidence_hash,
+    )
+
+    return {
+        "case_id": case.case_id,
+        "local_evidence_hash": case.evidence_hash,
+        "blockchain_status": case.blockchain_status,
+        "blockchain_transaction": case.blockchain_tx_hash,
+        "verification": result,
+    }
 
 
 @router.get("/cases/{case_id}/report")

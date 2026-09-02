@@ -48,7 +48,21 @@ class Settings:
     @property
     def pubsub_topic_full_name(self) -> str:
         return f"projects/{self.GOOGLE_CLOUD_PROJECT}/topics/{self.PUBSUB_TOPIC}"
+        # --- Blockchain evidence audit ---
+    BLOCKCHAIN_ENABLED: bool = (
+        os.getenv("BLOCKCHAIN_ENABLED", "false").lower() == "true"
+    )
 
+    BLOCKCHAIN_RPC_URL: str = os.getenv("BLOCKCHAIN_RPC_URL", "")
+
+    BLOCKCHAIN_CONTRACT_ADDRESS: str = os.getenv(
+        "BLOCKCHAIN_CONTRACT_ADDRESS", ""
+    )
+
+    # NEVER hard-code this value.
+    BLOCKCHAIN_PRIVATE_KEY: str = os.getenv(
+        "BLOCKCHAIN_PRIVATE_KEY", ""
+    )
     # --- Auto-quarantine ---
     # Any case with final_risk_score >= this AND decision in
     # (QUARANTINE, BLOCK) gets pulled out of the inbox automatically.

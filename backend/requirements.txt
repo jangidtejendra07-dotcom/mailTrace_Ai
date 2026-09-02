@@ -31,4 +31,6 @@ APScheduler==3.10.4
 # NOTE: Groq and Gemini are called via plain `requests` (already a
 # dependency above) using their REST APIs directly — no extra SDK needed.
 # This keeps the dependency surface small and the LLM calls fast.
-psycopg2-binary==2.9.9
+psycopg2-binary==2.9.12
+
+web3==7.14.0

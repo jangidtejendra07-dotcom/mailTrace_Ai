@@ -80,11 +80,14 @@ class Case(Base):
 
     evidence_hash = Column(String)
     full_response = Column(JSON)
-
+        # Blockchain evidence audit
+    blockchain_status = Column(String, nullable=True)
+    blockchain_tx_hash = Column(String, nullable=True)
+    blockchain_block_number = Column(Integer, nullable=True)
+    blockchain_event_hash = Column(String, nullable=True)
     # Auto-quarantine tracking: null = never touched, "quarantined" = pulled
     # out of the inbox via Gmail label swap, "released" = user reviewed it
     # on the website and put it back in the inbox.
-    quarantine_status = Column(String, nullable=True)
     quarantined_at = Column(DateTime(timezone=True), nullable=True)
     released_at = Column(DateTime(timezone=True), nullable=True)
 

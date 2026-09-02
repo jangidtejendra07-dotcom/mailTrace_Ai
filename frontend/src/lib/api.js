@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: 'https://mailtrace-ai-backend.onrender.com/api/v1',
 })
 
 // Attach the JWT to every outgoing request, if we have one

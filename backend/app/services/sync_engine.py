@@ -8,34 +8,55 @@ Keeping this in one place means both paths always behave identically —
 same risk logic, same quarantine rule, same DB shape — so there's no drift
 between "on-demand" and "real-time" detection.
 """
+
 import logging
+import datetime
 
 from sqlalchemy.orm import Session
 
 from app.models import Case, GmailAccount
 from app.pipeline import run_pipeline
 from app.services import gmail_service
+from app.services.blockchain import blockchain_service
 from app.config import settings
+
 
 logger = logging.getLogger("mailtrace.sync_engine")
 
 
-def process_gmail_message(db: Session, user_id: int, account: GmailAccount, creds, msg_id: str) -> dict | None:
-    """Fetches + analyzes one Gmail message, persists it as a Case, and
-    auto-quarantines it if the risk is high enough. Returns a small summary
-    dict for the API response, or None if the message was already processed
-    or could not be parsed (never lets one bad message break a whole sync)."""
+def process_gmail_message(
+    db: Session,
+    user_id: int,
+    account: GmailAccount,
+    creds,
+    msg_id: str
+) -> dict | None:
+    """
+    Fetches + analyzes one Gmail message, persists it as a Case, and
+    auto-quarantines it if the risk is high enough.
+
+    Returns a small summary dict for the API response, or None if the
+    message was already processed or could not be parsed.
+    """
+
     already = db.query(Case).filter(
-        Case.user_id == user_id, Case.gmail_message_id == msg_id
+        Case.user_id == user_id,
+        Case.gmail_message_id == msg_id
     ).first()
+
     if already:
         return None
 
     try:
         raw_bytes = gmail_service.fetch_raw_message(creds, msg_id)
         result = run_pipeline(raw_bytes)
+
     except Exception as exc:
-        logger.warning("Skipping unparseable Gmail message %s: %s", msg_id, exc)
+        logger.warning(
+            "Skipping unparseable Gmail message %s: %s",
+            msg_id,
+            exc
+        )
         return None
 
     case = Case(
@@ -57,29 +78,74 @@ def process_gmail_message(db: Session, user_id: int, account: GmailAccount, cred
         geolocation=result["geolocation"],
         risk_fusion={"explanation": result["explanation"]},
         evidence_hash=result["evidence_hash"],
-        full_response={k: v for k, v in result.items() if k != "_internal"},
+        full_response={
+            k: v for k, v in result.items()
+            if k != "_internal"
+        },
     )
 
-    # --- Auto-quarantine: pull high-risk mail out of the inbox automatically
-    # so the user has to open MailTrace's website to see it. Never deletes.
+    # ---------------------------------------------------------
+    # Auto-quarantine
+    # ---------------------------------------------------------
     should_quarantine = (
         result["decision"] in ("QUARANTINE", "BLOCK")
         and result["risk_score"] >= settings.QUARANTINE_RISK_THRESHOLD
     )
+
     if should_quarantine:
         try:
-            gmail_service.quarantine_message(creds, msg_id, settings.QUARANTINE_GMAIL_LABEL)
+            gmail_service.quarantine_message(
+                creds,
+                msg_id,
+                settings.QUARANTINE_GMAIL_LABEL
+            )
+
             case.quarantine_status = "quarantined"
-            import datetime
             case.quarantined_at = datetime.datetime.utcnow()
+
         except Exception as exc:
-            # Don't fail the whole analysis if the label API call hiccups —
-            # the case is still recorded and visible on the website either way.
-            logger.warning("Could not quarantine message %s: %s", msg_id, exc)
+            logger.warning(
+                "Could not quarantine message %s: %s",
+                msg_id,
+                exc
+            )
 
+    # ---------------------------------------------------------
+    # Save Case first so DB-generated values are available
+    # ---------------------------------------------------------
     db.add(case)
-    db.flush()  # get any DB-generated defaults without committing yet
+    db.flush()
 
+    # ---------------------------------------------------------
+    # Record evidence on blockchain
+    # ---------------------------------------------------------
+    try:
+        blockchain_result = blockchain_service.record_evidence(
+            case_id=case.case_id,
+            evidence_hash=case.evidence_hash,
+            event_type="EMAIL_ANALYZED",
+        )
+
+        case.blockchain_status = blockchain_result.get("status")
+        case.blockchain_tx_hash = blockchain_result.get(
+            "transaction_hash"
+        )
+        case.blockchain_block_number = blockchain_result.get(
+            "block_number"
+        )
+        case.blockchain_event_hash = case.evidence_hash
+
+    except Exception as exc:
+        # Blockchain failure should NOT stop email analysis.
+        logger.warning(
+            "Could not record blockchain evidence for case %s: %s",
+            case.case_id,
+            exc
+        )
+
+    # ---------------------------------------------------------
+    # Return API summary
+    # ---------------------------------------------------------
     return {
         "case_id": case.case_id,
         "subject": case.subject,
