@@ -100,7 +100,6 @@ def process_gmail_message(
                 settings.QUARANTINE_GMAIL_LABEL
             )
 
-            case.quarantine_status = "quarantined"
             case.quarantined_at = datetime.datetime.utcnow()
 
         except Exception as exc:
@@ -152,5 +151,5 @@ def process_gmail_message(
         "from_address": case.from_address,
         "decision": case.decision,
         "final_risk_score": case.final_risk_score,
-        "quarantined": case.quarantine_status == "quarantined",
+        "quarantined": case.quarantined_at is not None,
     }

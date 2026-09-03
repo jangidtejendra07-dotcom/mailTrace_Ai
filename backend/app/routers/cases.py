@@ -50,10 +50,18 @@ def list_quarantined_cases(
 ):
     """Mail that was automatically pulled out of the user's inbox because it
     scored above the quarantine threshold. Registered BEFORE /cases/{case_id}
-    so "quarantined" isn't swallowed as a case_id path parameter."""
+    so "quarantined" isn't swallowed as a case_id path parameter.
+
+    A case is "currently quarantined" when it has a quarantined_at
+    timestamp AND has not since been released (released_at is still null).
+    """
     cases = (
         db.query(Case)
-        .filter(Case.user_id == current_user.id, Case.quarantine_status == "quarantined")
+        .filter(
+            Case.user_id == current_user.id,
+            Case.quarantined_at.isnot(None),
+            Case.released_at.is_(None),
+        )
         .order_by(desc(Case.created_at))
         .all()
     )
@@ -147,7 +155,7 @@ def release_case(case_id: str, db: Session = Depends(get_db), current_user: User
     delete happens anywhere in this flow."""
     case = _get_owned_case(case_id, db, current_user)
 
-    if case.quarantine_status != "quarantined":
+    if case.quarantined_at is None or case.released_at is not None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This case isn't currently quarantined.")
     if not case.gmail_message_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "This case has no linked Gmail message to release.")
@@ -162,8 +170,7 @@ def release_case(case_id: str, db: Session = Depends(get_db), current_user: User
     except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not release message in Gmail: {exc}")
 
-    case.quarantine_status = "released"
     case.released_at = datetime.datetime.utcnow()
     db.commit()
 
-    return {"case_id": case.case_id, "quarantine_status": case.quarantine_status, "released": True}
+    return {"case_id": case.case_id, "released": True}
