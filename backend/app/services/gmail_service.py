@@ -76,9 +76,19 @@ def build_authorization_url(state: str) -> str:
 
 def exchange_code_for_tokens(code: str) -> Credentials:
     flow = Flow.from_client_config(
-        _client_config(), scopes=settings.GMAIL_SCOPES, redirect_uri=settings.GOOGLE_REDIRECT_URI
+        _client_config(),
+        scopes=settings.GMAIL_SCOPES,
+        redirect_uri=settings.GOOGLE_REDIRECT_URI,
     )
+
+    # Google may return additional scopes because the same Google account
+    # is also authorized for the MailTrace Gmail Add-on.
+    # Do not let requests-oauthlib reject the token response because
+    # the granted scope set is broader than the requested Gmail scopes.
+    flow.oauth2session.scope = None
+
     flow.fetch_token(code=code)
+
     return flow.credentials
 
 
