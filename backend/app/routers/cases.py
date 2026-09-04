@@ -8,8 +8,8 @@ from sqlalchemy import desc
 from app.database import get_db
 from app.models import Case, GmailAccount, User
 from app.auth.dependencies import get_current_user, get_current_user_flexible
-from app.services.report_generator import generate_case_report_pdf
-from app.services import gmail_service
+from app.services.report_generator import generate_case_report_pdf, generate_legal_report_pdf
+from app.services import gmail_service, chain_of_custody, fusion_pipeline
 from app.config import settings
 
 router = APIRouter(prefix="/api/v1", tags=["cases"])
@@ -88,6 +88,28 @@ def _get_owned_case(case_id: str, db: Session, current_user: User) -> Case:
     return case
 
 
+@router.get("/cases/{case_id}/fusion-status")
+def get_case_fusion_status(
+    case_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Feature 1 — informational only. Shows whatever AI/Forensic stage
+    results are currently cached in Redis for this case (24h TTL). This
+    never affects the case's actual decision — that's already final and
+    stored on the Case row itself. Returns null fields if Redis is
+    unavailable or the cache has expired, which is expected and fine.
+    """
+    case = _get_owned_case(case_id, db, current_user)
+    cached = fusion_pipeline.get_cached_fusion(case.case_id)
+    return {
+        "case_id": case.case_id,
+        "cached_stages": cached,
+        "note": "Informational only — the case's final decision is already stored and does not depend on this cache.",
+    }
+
+
 @router.get("/cases/{case_id}")
 def get_case(case_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     case = _get_owned_case(case_id, db, current_user)
@@ -148,6 +170,63 @@ def get_case_report(case_id: str, db: Session = Depends(get_db), current_user: U
     )
 
 
+@router.get("/cases/{case_id}/report/legal/{jurisdiction}")
+def get_case_legal_report(
+    case_id: str,
+    jurisdiction: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_flexible),
+):
+    """
+    Feature 4 — Legal-Grade Automation.
+
+    Generates a jurisdiction-specific (us/eu), digitally-signed PDF that
+    includes the full chain-of-custody trail for this case. Every call
+    itself becomes a new custody-log entry, so if this report is
+    regenerated later, both PDFs are visible in the trail.
+    """
+    if jurisdiction.lower() not in ("us", "eu"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "jurisdiction must be 'us' or 'eu'.")
+
+    case = _get_owned_case(case_id, db, current_user)
+
+    payload = {
+        "case_id": case.case_id,
+        "classification": case.classification,
+        "decision": case.decision,
+        "final_risk_score": case.final_risk_score,
+        "subject": case.subject,
+        "from_address": case.from_address,
+        "evidence_hash": case.evidence_hash,
+        "generated_at": str(case.created_at),
+        "explanation": (case.risk_fusion or {}).get("explanation", []),
+        "forensics_result": case.forensics_result or {},
+        "geolocation": case.geolocation or {},
+    }
+
+    custody_entries = chain_of_custody.get_custody_log(db, case.case_id)
+
+    try:
+        pdf_bytes = generate_legal_report_pdf(payload, jurisdiction.lower(), custody_entries)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc))
+
+    chain_of_custody.log_action(
+        db, case.case_id, "LEGAL_REPORT_GENERATED", case.evidence_hash, current_user.id
+    )
+    db.commit()
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{case_id}_legal_report_{jurisdiction.lower()}.pdf"'
+        },
+    )
+
+
 @router.post("/cases/{case_id}/release")
 def release_case(case_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """User reviewed a quarantined mail on the website and it was a false
@@ -171,6 +250,9 @@ def release_case(case_id: str, db: Session = Depends(get_db), current_user: User
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Could not release message in Gmail: {exc}")
 
     case.released_at = datetime.datetime.utcnow()
+    chain_of_custody.log_action(
+        db, case.case_id, "RELEASED_FROM_QUARANTINE", case.evidence_hash, current_user.id
+    )
     db.commit()
 
     return {"case_id": case.case_id, "released": True}

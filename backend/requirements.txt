@@ -34,3 +34,15 @@ APScheduler==3.10.4
 psycopg2-binary==2.9.12
 
 web3==7.14.0
+
+# --- Feature 4: Legal-Grade Automation (chain of custody + signed PDFs) ---
+jinja2==3.1.4
+xhtml2pdf==0.2.16
+pyhanko==0.25.3
+pyhanko-certvalidator==0.26.5
+
+cryptography==43.0.3
+
+neo4j==5.24.0
+strawberry-graphql[fastapi]==0.238.1
+redis==5.0.8

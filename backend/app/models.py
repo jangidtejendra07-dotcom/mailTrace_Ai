@@ -98,3 +98,28 @@ class Case(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "gmail_message_id", name="uq_user_gmail_message"),
     )
+
+
+class CustodyLog(Base):
+    """
+    Feature 4 — Chain of Custody.
+
+    Every notable action taken on a case (analyzed, auto-quarantined,
+    released, legal report generated, etc.) gets one row here with a
+    timestamp and the evidence hash at that moment. A legal report pulls
+    all rows for its case_id to show an unbroken custody trail — i.e. proof
+    that the evidence wasn't silently altered between analysis and
+    reporting.
+    """
+    __tablename__ = "custody_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    case_id = Column(String, ForeignKey("cases.case_id"), index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # e.g. "CASE_CREATED", "AUTO_QUARANTINED", "RELEASED_FROM_QUARANTINE",
+    # "LEGAL_REPORT_GENERATED"
+    action = Column(String, nullable=False)
+    evidence_hash = Column(String, nullable=True)
+
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())

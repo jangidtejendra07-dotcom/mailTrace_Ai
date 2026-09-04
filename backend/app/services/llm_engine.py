@@ -1,115 +1,84 @@
 """
-Real-time LLM-based email intent analysis.
+Real-time LLM-based email intent + recommendation engine.
 
-Fallback chain (each step only runs if the previous one fails/times out),
-so a single provider outage or a hit rate-limit NEVER breaks analysis:
+Analysis:
+    Groq -> Gemini -> None
 
-    1. Groq   (llama-3.3-70b-versatile) -- primary, fastest inference (LPU
-       hardware), free tier: 30 req/min, 1,000 req/day.
-    2. Gemini (gemini-2.5-flash-lite)   -- fallback, free tier: 15 req/min,
-       1,000 req/day, huge token budget.
-    3. None -> caller (ai_engine.py) falls back to the local scikit-learn
-       model, so the pipeline always returns a result even fully offline.
+Recommendation:
+    Groq -> Gemini -> unavailable
 
-Both providers are called with plain `requests` (no extra SDK dependency,
-smaller surface area, fewer things that can break) and a short timeout so a
-slow/hanging provider never stalls the whole analysis pipeline.
-"""
-"""
-MailTrace AI — Real-time LLM email intent analysis.
-
-Priority:
-1. Groq
-2. Gemini
-3. Local ML fallback (handled by ai_engine.py)
-
-This version includes detailed provider diagnostics in Render logs.
+IMPORTANT:
+    Local ML is used only for email classification fallback.
+    It is NEVER used to generate recommendations.
 """
 
 import json
-import re
 import logging
+import re
+
 import requests
 
 from app.config import settings
 
-
 logger = logging.getLogger("mailtrace.llm_engine")
 
 
-SYSTEM_PROMPT = """
-You are an email security analyst.
+_SYSTEM_PROMPT = (
+    "You are an email security analyst. Analyze the given email subject and "
+    "body for phishing, business-email-compromise (BEC), malware-lure, or "
+    "spam intent. Respond with ONLY a compact JSON object, no markdown, no "
+    "extra text, in exactly this shape: "
+    '{"score": <integer 0-100, 100=definitely malicious>, '
+    '"category": <one of "safe","phishing","bec","spam","malware">, '
+    '"reasons": [<short strings, max 4, each under 15 words>]}'
+)
 
-Analyze the email for:
-- phishing
-- business email compromise (BEC)
-- malware lure
-- spam
-- safe email
 
-Return ONLY valid JSON.
-
-Required format:
-{
-  "score": 0,
-  "category": "safe",
-  "reasons": []
-}
-
-Rules:
-- score must be integer from 0 to 100
-- 100 means definitely malicious
-- category must be one of:
-  safe, phishing, bec, spam, malware
-- reasons must contain at most 4 short explanations
-"""
+_RECOMMENDATION_SYSTEM_PROMPT = (
+    "You are a senior email security analyst. "
+    "Based on the supplied MailTrace email security analysis, provide a "
+    "short practical recommendation for the user. "
+    "Tell the user what they should do with this email. "
+    "Do not invent facts. "
+    "If the email is high risk, recommend not clicking links, not opening "
+    "attachments, and not replying or providing credentials. "
+    "If it is safe, say it appears safe but advise normal caution. "
+    "Return ONLY a JSON object in exactly this shape: "
+    '{"recommendation": "<short recommendation, maximum 60 words>"}'
+)
 
 
 def _build_user_prompt(subject: str, body: str) -> str:
     trimmed_body = (body or "")[:4000]
-
-    return (
-        f"Subject: {subject or ''}\n\n"
-        f"Body:\n{trimmed_body}"
-    )
+    return f"Subject: {subject}\n\nBody:\n{trimmed_body}"
 
 
-def _extract_json(text: str):
-    """
-    Extract JSON even if the model accidentally wraps it in markdown.
-    """
-
+def _extract_json(text: str) -> dict | None:
     if not text:
         return None
 
-    text = text.strip()
-
-    # Remove markdown fences if present
-    text = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s*```$", "", text)
-
-    # First try entire response
+    # First try the complete response directly.
     try:
-        return json.loads(text)
+        parsed = json.loads(text.strip())
+        if isinstance(parsed, dict):
+            return parsed
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # Then find first JSON object
+    # Fallback: extract the first JSON object.
     match = re.search(r"\{.*\}", text, re.DOTALL)
 
     if not match:
         return None
 
     try:
-        return json.loads(match.group(0))
+        parsed = json.loads(match.group(0))
+        return parsed if isinstance(parsed, dict) else None
     except (json.JSONDecodeError, ValueError):
         return None
 
 
-def _normalize_result(raw: dict, engine_name: str):
-    if not isinstance(raw, dict):
-        return None
-
+def _normalize_result(raw: dict, engine_name: str) -> dict | None:
     try:
         score = int(raw.get("score", 0))
     except (TypeError, ValueError):
@@ -121,15 +90,13 @@ def _normalize_result(raw: dict, engine_name: str):
         raw.get("category", "safe")
     ).strip().lower()
 
-    valid_categories = {
+    if category not in {
         "safe",
         "phishing",
         "bec",
         "spam",
         "malware",
-    }
-
-    if category not in valid_categories:
+    }:
         category = "safe" if score < 40 else "phishing"
 
     reasons = raw.get("reasons") or []
@@ -156,348 +123,442 @@ def _normalize_result(raw: dict, engine_name: str):
     }
 
 
-def _call_groq(subject: str, body: str):
-    """
-    Primary provider: Groq.
-    """
-
-    api_key = settings.GROQ_API_KEY
-
-    if not api_key:
-        logger.warning("GROQ_API_KEY is not configured.")
+def _call_groq(subject: str, body: str) -> dict | None:
+    if not settings.GROQ_API_KEY:
+        logger.warning("Groq API key is not configured.")
         return None
-
-    model = settings.GROQ_MODEL
-
-    logger.info(
-        "Trying Groq | model=%s | timeout=%ss",
-        model,
-        settings.LLM_TIMEOUT_SECONDS,
-    )
-
-    url = "https://api.groq.com/openai/v1/chat/completions"
-
-    payload = {
-        "model": model,
-        "messages": [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": _build_user_prompt(subject, body),
-            },
-        ],
-        "temperature": 0.1,
-        "max_tokens": 300,
-        "response_format": {
-            "type": "json_object"
-        },
-    }
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
 
     try:
         response = requests.post(
-            url,
-            headers=headers,
-            json=payload,
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": settings.GROQ_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": _SYSTEM_PROMPT,
+                    },
+                    {
+                        "role": "user",
+                        "content": _build_user_prompt(subject, body),
+                    },
+                ],
+                "temperature": 0.1,
+                "max_tokens": 300,
+                "response_format": {
+                    "type": "json_object"
+                },
+            },
             timeout=settings.LLM_TIMEOUT_SECONDS,
         )
 
-        logger.info(
-            "Groq response | HTTP %s",
-            response.status_code,
-        )
-
         if response.status_code != 200:
-            logger.error(
-                "Groq failed | HTTP %s | body=%s",
+            logger.warning(
+                "Groq analysis failed: HTTP %s %s",
                 response.status_code,
-                response.text[:500],
+                response.text[:300],
             )
             return None
 
-        data = response.json()
-
-        content = (
-            data
-            .get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
-
-        if not content:
-            logger.error("Groq returned empty content.")
-            return None
+        content = response.json()["choices"][0]["message"]["content"]
 
         parsed = _extract_json(content)
 
         if not parsed:
-            logger.error(
-                "Groq returned invalid JSON | content=%s",
-                content[:500],
+            return None
+
+        return _normalize_result(parsed, "groq")
+
+    except (
+        requests.RequestException,
+        KeyError,
+        IndexError,
+        ValueError,
+        TypeError,
+    ) as exc:
+        logger.warning(
+            "Groq analysis raised %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        return None
+
+
+def _call_gemini(subject: str, body: str) -> dict | None:
+    if not settings.GEMINI_API_KEY:
+        logger.warning("Gemini API key is not configured.")
+        return None
+
+    try:
+        url = (
+            "https://generativelanguage.googleapis.com/"
+            "v1beta/models/"
+            f"{settings.GEMINI_MODEL}:generateContent"
+            f"?key={settings.GEMINI_API_KEY}"
+        )
+
+        response = requests.post(
+            url,
+            json={
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": _build_user_prompt(
+                                    subject,
+                                    body,
+                                )
+                            }
+                        ]
+                    }
+                ],
+                "systemInstruction": {
+                    "parts": [
+                        {
+                            "text": _SYSTEM_PROMPT
+                        }
+                    ]
+                },
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "maxOutputTokens": 300,
+                    "responseMimeType": "application/json",
+                },
+            },
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+        )
+
+        if response.status_code != 200:
+            logger.warning(
+                "Gemini analysis failed: HTTP %s %s",
+                response.status_code,
+                response.text[:300],
             )
             return None
 
-        result = _normalize_result(
+        content = (
+            response.json()
+            ["candidates"][0]
+            ["content"]["parts"][0]["text"]
+        )
+
+        parsed = _extract_json(content)
+
+        if not parsed:
+            return None
+
+        return _normalize_result(parsed, "gemini")
+
+    except (
+        requests.RequestException,
+        KeyError,
+        IndexError,
+        ValueError,
+        TypeError,
+    ) as exc:
+        logger.warning(
+            "Gemini analysis raised %s: %s",
+            type(exc).__name__,
+            exc,
+        )
+        return None
+
+
+def analyze_intent_llm(subject: str, body: str) -> dict | None:
+    """
+    Analysis fallback chain:
+
+        Groq -> Gemini -> None
+
+    None means the caller should use local ML.
+    """
+
+    text = f"{subject}\n{body}".strip()
+
+    if not text:
+        return None
+
+    result = _call_groq(subject, body)
+
+    if result is not None:
+        return result
+
+    result = _call_gemini(subject, body)
+
+    if result is not None:
+        return result
+
+    return None
+
+
+# ============================================================
+# FINAL RECOMMENDATION
+# ============================================================
+
+
+def _build_recommendation_prompt(
+    subject: str,
+    classification: str,
+    risk_score: int,
+    decision: str,
+    reasons: list,
+) -> str:
+    safe_reasons = reasons[:6] if isinstance(reasons, list) else []
+
+    return (
+        "MailTrace email security result:\n\n"
+        f"Subject: {subject}\n"
+        f"Classification: {classification}\n"
+        f"Risk Score: {risk_score}/100\n"
+        f"Decision: {decision}\n"
+        f"Reasons: {json.dumps(safe_reasons)}\n\n"
+        "Give one concise practical recommendation for the user."
+    )
+
+
+def _normalize_recommendation(
+    raw: dict,
+    engine_name: str,
+) -> dict | None:
+    recommendation = raw.get("recommendation")
+
+    if not recommendation:
+        return None
+
+    recommendation = str(recommendation).strip()
+
+    if not recommendation:
+        return None
+
+    return {
+        "recommendation": recommendation[:500],
+        "recommendation_engine": engine_name,
+    }
+
+
+def _call_groq_recommendation(
+    subject: str,
+    classification: str,
+    risk_score: int,
+    decision: str,
+    reasons: list,
+) -> dict | None:
+
+    if not settings.GROQ_API_KEY:
+        return None
+
+    try:
+        prompt = _build_recommendation_prompt(
+            subject,
+            classification,
+            risk_score,
+            decision,
+            reasons,
+        )
+
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": settings.GROQ_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": _RECOMMENDATION_SYSTEM_PROMPT,
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt,
+                    },
+                ],
+                "temperature": 0.2,
+                "max_tokens": 180,
+                "response_format": {
+                    "type": "json_object"
+                },
+            },
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+        )
+
+        if response.status_code != 200:
+            logger.warning(
+                "Groq recommendation failed: HTTP %s %s",
+                response.status_code,
+                response.text[:300],
+            )
+            return None
+
+        content = response.json()["choices"][0]["message"]["content"]
+
+        parsed = _extract_json(content)
+
+        if not parsed:
+            return None
+
+        return _normalize_recommendation(
             parsed,
             "groq",
         )
 
-        if result:
-            logger.info(
-                "Groq analysis successful | category=%s | score=%s",
-                result["category"],
-                result["score"],
-            )
-
-        return result
-
-    except requests.Timeout:
-        logger.error("Groq request timed out.")
-        return None
-
-    except requests.RequestException as exc:
-        logger.error(
-            "Groq network error: %s",
-            exc,
-        )
-        return None
-
-    except (ValueError, KeyError, IndexError, TypeError) as exc:
-        logger.error(
-            "Groq response parsing error: %s",
-            exc,
-        )
-        return None
-
-    except Exception as exc:
-        logger.exception(
-            "Unexpected Groq error: %s",
+    except (
+        requests.RequestException,
+        KeyError,
+        IndexError,
+        ValueError,
+        TypeError,
+    ) as exc:
+        logger.warning(
+            "Groq recommendation raised %s: %s",
+            type(exc).__name__,
             exc,
         )
         return None
 
 
-def _call_gemini(subject: str, body: str):
-    """
-    Fallback provider: Google Gemini.
-    """
+def _call_gemini_recommendation(
+    subject: str,
+    classification: str,
+    risk_score: int,
+    decision: str,
+    reasons: list,
+) -> dict | None:
 
-    api_key = settings.GEMINI_API_KEY
-
-    if not api_key:
-        logger.warning("GEMINI_API_KEY is not configured.")
+    if not settings.GEMINI_API_KEY:
         return None
-
-    model = settings.GEMINI_MODEL
-
-    logger.info(
-        "Trying Gemini | model=%s | timeout=%ss",
-        model,
-        settings.LLM_TIMEOUT_SECONDS,
-    )
-
-    url = (
-        "https://generativelanguage.googleapis.com/"
-        "v1beta/models/"
-        f"{model}:generateContent"
-    )
-
-    params = {
-        "key": api_key,
-    }
-
-    payload = {
-        "systemInstruction": {
-            "parts": [
-                {
-                    "text": SYSTEM_PROMPT
-                }
-            ]
-        },
-        "contents": [
-            {
-                "parts": [
-                    {
-                        "text": _build_user_prompt(
-                            subject,
-                            body,
-                        )
-                    }
-                ]
-            }
-        ],
-        "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": 300,
-            "responseMimeType": "application/json",
-        },
-    }
-
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
 
     try:
+        prompt = _build_recommendation_prompt(
+            subject,
+            classification,
+            risk_score,
+            decision,
+            reasons,
+        )
+
+        url = (
+            "https://generativelanguage.googleapis.com/"
+            "v1beta/models/"
+            f"{settings.GEMINI_MODEL}:generateContent"
+            f"?key={settings.GEMINI_API_KEY}"
+        )
+
         response = requests.post(
             url,
-            params=params,
-            headers=headers,
-            json=payload,
+            json={
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": prompt
+                            }
+                        ]
+                    }
+                ],
+                "systemInstruction": {
+                    "parts": [
+                        {
+                            "text": _RECOMMENDATION_SYSTEM_PROMPT
+                        }
+                    ]
+                },
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "maxOutputTokens": 180,
+                    "responseMimeType": "application/json",
+                },
+            },
             timeout=settings.LLM_TIMEOUT_SECONDS,
         )
 
-        logger.info(
-            "Gemini response | HTTP %s",
-            response.status_code,
-        )
-
         if response.status_code != 200:
-            logger.error(
-                "Gemini failed | HTTP %s | body=%s",
+            logger.warning(
+                "Gemini recommendation failed: HTTP %s %s",
                 response.status_code,
-                response.text[:500],
-            )
-            return None
-
-        data = response.json()
-
-        candidates = data.get("candidates") or []
-
-        if not candidates:
-            logger.error(
-                "Gemini returned no candidates."
+                response.text[:300],
             )
             return None
 
         content = (
-            candidates[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
+            response.json()
+            ["candidates"][0]
+            ["content"]["parts"][0]["text"]
         )
-
-        if not content:
-            logger.error(
-                "Gemini returned empty content."
-            )
-            return None
 
         parsed = _extract_json(content)
 
         if not parsed:
-            logger.error(
-                "Gemini returned invalid JSON | content=%s",
-                content[:500],
-            )
             return None
 
-        result = _normalize_result(
+        return _normalize_recommendation(
             parsed,
             "gemini",
         )
 
-        if result:
-            logger.info(
-                "Gemini analysis successful | category=%s | score=%s",
-                result["category"],
-                result["score"],
-            )
-
-        return result
-
-    except requests.Timeout:
-        logger.error(
-            "Gemini request timed out."
-        )
-        return None
-
-    except requests.RequestException as exc:
-        logger.error(
-            "Gemini network error: %s",
-            exc,
-        )
-        return None
-
-    except (ValueError, KeyError, IndexError, TypeError) as exc:
-        logger.error(
-            "Gemini response parsing error: %s",
-            exc,
-        )
-        return None
-
-    except Exception as exc:
-        logger.exception(
-            "Unexpected Gemini error: %s",
-            exc,
-        )
-        return None
-
-
-def analyze_intent_llm(subject: str, body: str):
-    """
-    Groq -> Gemini -> None.
-
-    ai_engine.py handles the final local ML fallback.
-    """
-
-    text = f"{subject or ''}\n{body or ''}".strip()
-
-    if not text:
+    except (
+        requests.RequestException,
+        KeyError,
+        IndexError,
+        ValueError,
+        TypeError,
+    ) as exc:
         logger.warning(
-            "LLM analysis skipped: empty email."
+            "Gemini recommendation raised %s: %s",
+            type(exc).__name__,
+            exc,
         )
         return None
 
-    # ---------------------------------------------------------
-    # 1. GROQ
-    # ---------------------------------------------------------
 
-    result = _call_groq(
+def generate_recommendation(
+    subject: str,
+    classification: str,
+    risk_score: int,
+    decision: str,
+    reasons: list,
+) -> dict:
+
+    """
+    Recommendation is intentionally LLM-only.
+
+    Priority:
+        Groq -> Gemini -> unavailable
+
+    Local ML NEVER generates the recommendation.
+    """
+
+    result = _call_groq_recommendation(
         subject,
-        body,
+        classification,
+        risk_score,
+        decision,
+        reasons,
     )
 
     if result is not None:
-        logger.info(
-            "LLM engine selected Groq."
-        )
         return result
 
-    # ---------------------------------------------------------
-    # 2. GEMINI
-    # ---------------------------------------------------------
-
-    logger.warning(
-        "Groq unavailable. Falling back to Gemini."
-    )
-
-    result = _call_gemini(
+    result = _call_gemini_recommendation(
         subject,
-        body,
+        classification,
+        risk_score,
+        decision,
+        reasons,
     )
 
     if result is not None:
-        logger.info(
-            "LLM engine selected Gemini."
-        )
         return result
 
-    # ---------------------------------------------------------
-    # 3. LOCAL MODEL
-    # ---------------------------------------------------------
-
-    logger.error(
-        "Groq and Gemini both unavailable. "
-        "Falling back to local ML model."
-    )
-
-    return None
+    return {
+        "recommendation": (
+            "AI recommendation is temporarily unavailable. "
+            "Please try again in some time."
+        ),
+        "recommendation_engine": "unavailable",
+    }

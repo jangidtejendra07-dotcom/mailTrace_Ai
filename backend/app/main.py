@@ -2,9 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine
-from app.routers import analyze, cases, auth, gmail, webhook, addon
+from app.routers import analyze, cases, auth, gmail, webhook, addon, geo
+from app.routers.graph import graphql_app
 from app.config import settings
 from app import scheduler
+from app.services import graph_manager
 
 Base.metadata.create_all(bind=engine)
 
@@ -28,6 +30,8 @@ app.include_router(webhook.router)
 app.include_router(addon.router)
 app.include_router(analyze.router)
 app.include_router(cases.router)
+app.include_router(geo.router)
+app.include_router(graphql_app, prefix="/graphql")
 
 
 @app.on_event("startup")
@@ -40,6 +44,7 @@ def on_startup():
 @app.on_event("shutdown")
 def on_shutdown():
     scheduler.stop_scheduler()
+    graph_manager.close_driver()
 
 
 @app.get("/")
@@ -58,6 +63,9 @@ def root():
             "quarantined_cases": "GET /api/v1/cases/quarantined",
             "release_case": "POST /api/v1/cases/{case_id}/release",
             "analyze_upload": "POST /api/v1/analyze-email",
+            "legal_report": "GET /api/v1/cases/{case_id}/report/legal/{jurisdiction}",
+            "geo_infra": "GET /api/v1/geo/infra",
+            "campaign_graph_graphql": "POST /graphql (or open in browser for GraphiQL)",
         },
     }
 

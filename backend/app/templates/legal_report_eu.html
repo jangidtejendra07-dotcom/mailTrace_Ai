@@ -1,0 +1,85 @@
+<html>
+<head>
+<style>
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 10pt; color: #1e293b; }
+    h1 { font-size: 16pt; color: #0f172a; margin-bottom: 2px; }
+    h2 { font-size: 12pt; color: #0f172a; margin-top: 16px; margin-bottom: 4px; border-bottom: 1px solid #cbd5e1; padding-bottom: 2px; }
+    .subtitle { font-size: 8pt; color: #475569; margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+    td { padding: 4px 6px; border: 0.5px solid #cbd5e1; vertical-align: top; font-size: 9pt; }
+    td.label { background-color: #f1f5f9; font-weight: bold; width: 30%; }
+    .reason { font-size: 9pt; margin: 2px 0; }
+    .footer-note { font-size: 7.5pt; color: #64748b; margin-top: 20px; }
+    .decision { font-weight: bold; }
+</style>
+</head>
+<body>
+    <h1>MailTrace AI — Legal Evidence Report</h1>
+    <div class="subtitle">
+        Jurisdiction: European Union &nbsp;|&nbsp; Prepared for review with
+        reference to Regulation (EU) 2016/679 (GDPR) Articles 33/34 and for
+        voluntary submission to the relevant national CERT / cybercrime
+        reporting authority. This report is generated for human analyst
+        review and does not constitute a filed legal complaint or a formal
+        data-breach notification.
+    </div>
+
+    <h2>Case Summary</h2>
+    <table>
+        <tr><td class="label">Case ID</td><td>{{ case.case_id }}</td></tr>
+        <tr><td class="label">Classification</td><td>{{ case.classification }}</td></tr>
+        <tr><td class="label">Decision</td><td class="decision">{{ case.decision }}</td></tr>
+        <tr><td class="label">Final Risk Score</td><td>{{ case.final_risk_score }} / 100</td></tr>
+        <tr><td class="label">Subject</td><td>{{ case.subject or "(none)" }}</td></tr>
+        <tr><td class="label">From Address</td><td>{{ case.from_address }}</td></tr>
+        <tr><td class="label">Evidence SHA-256</td><td>{{ case.evidence_hash }}</td></tr>
+        <tr><td class="label">Report Generated At</td><td>{{ case.generated_at }}</td></tr>
+    </table>
+
+    <h2>Risk Reasoning</h2>
+    {% for reason in case.explanation %}
+        <div class="reason">&bull; {{ reason }}</div>
+    {% endfor %}
+
+    <h2>Header / Authentication Forensics</h2>
+    <table>
+        <tr><td class="label">SPF</td><td>{{ case.forensics_result.spf }}</td></tr>
+        <tr><td class="label">DKIM</td><td>{{ case.forensics_result.dkim }}</td></tr>
+        <tr><td class="label">DMARC</td><td>{{ case.forensics_result.dmarc }}</td></tr>
+        <tr><td class="label">Candidate Source IP</td><td>{{ case.forensics_result.candidate_source_ip or "Unknown" }}</td></tr>
+    </table>
+
+    {% if case.geolocation %}
+    <h2>IP Geolocation Intelligence (probable, not exact)</h2>
+    <table>
+        <tr><td class="label">Probable Origin</td><td>{{ case.geolocation.probable_origin or "Unknown" }}</td></tr>
+        <tr><td class="label">ASN / ISP</td><td>{{ case.geolocation.asn or "-" }} / {{ case.geolocation.isp or "-" }}</td></tr>
+    </table>
+    {% endif %}
+
+    <h2>Chain of Custody</h2>
+    <table>
+        <tr>
+            <td class="label">Timestamp</td>
+            <td class="label">Action</td>
+            <td class="label">Evidence Hash</td>
+        </tr>
+        {% for entry in custody_log %}
+        <tr>
+            <td>{{ entry.timestamp }}</td>
+            <td>{{ entry.action }}</td>
+            <td>{{ entry.evidence_hash }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <div class="footer-note">
+        This document was generated automatically by MailTrace AI (Smart India
+        Hackathon problem statement 26106) and digitally signed to detect any
+        post-generation tampering. It is intended to support a human-reviewed
+        submission to a national CERT, Europol's EC3, or a local data
+        protection authority, and does not itself constitute a filed
+        complaint, breach notification, or legal determination.
+    </div>
+</body>
+</html>

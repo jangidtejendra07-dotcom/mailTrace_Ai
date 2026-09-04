@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Case, GmailAccount
 from app.pipeline import run_pipeline
-from app.services import gmail_service
+from app.services import gmail_service, chain_of_custody, graph_manager
 from app.services.blockchain import blockchain_service
 from app.config import settings
 
@@ -114,6 +114,34 @@ def process_gmail_message(
     # ---------------------------------------------------------
     db.add(case)
     db.flush()
+
+    # ---------------------------------------------------------
+    # Chain of custody — record analysis (and auto-quarantine, if it
+    # happened) against this case_id now that it exists in the DB.
+    # ---------------------------------------------------------
+    chain_of_custody.log_action(db, case.case_id, "CASE_CREATED", case.evidence_hash, user_id)
+    if case.quarantined_at is not None:
+        chain_of_custody.log_action(db, case.case_id, "AUTO_QUARANTINED", case.evidence_hash, user_id)
+
+    # ---------------------------------------------------------
+    # Push this case's correlation graph into the persistent Neo4j
+    # campaign graph (Feature 2). MERGE inside graph_manager means
+    # repeated indicators across cases link automatically — no separate
+    # correlation step needed here. Never blocks/fails email analysis.
+    # ---------------------------------------------------------
+    try:
+        correlation_graph = result.get("correlation_graph") or {}
+        graph_manager.update_graph(
+            case.case_id,
+            correlation_graph.get("nodes", []),
+            correlation_graph.get("edges", []),
+        )
+    except Exception as exc:
+        logger.warning(
+            "Could not update campaign graph for case %s: %s",
+            case.case_id,
+            exc
+        )
 
     # ---------------------------------------------------------
     # Record evidence on blockchain

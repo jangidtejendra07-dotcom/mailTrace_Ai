@@ -19,26 +19,37 @@ Section 2 — Core Pipeline orchestrator.
             |
             v
   INTELLIGENCE -> CASE -> REPORT
+
+Feature 1 note: AI and Forensics/Attachment now run CONCURRENTLY (see
+risk_fusion.fuse_risk_with_pipeline -> fusion_pipeline.run), instead of
+one after another. The decision is still only made once both finish —
+this function's return shape is UNCHANGED from before.
 """
 from app.utils.email_parser import parse_eml
-from app.services import ai_engine, forensics, attachment_scanner, url_intel
 from app.services import ip_geolocation, risk_fusion, case_manager
 
 
 def run_pipeline(raw_bytes: bytes, resolve_network: bool = True) -> dict:
     parsed_email = parse_eml(raw_bytes)
 
-    ai_result = ai_engine.analyze_intent(parsed_email["subject"], parsed_email["plain_body"] or parsed_email["html_body"])
-    forensics_result = forensics.analyze_headers(parsed_email)
-    attachment_result = attachment_scanner.scan_attachments(parsed_email["attachments"])
-    url_result = url_intel.analyze_urls(parsed_email["urls"], resolve_network=resolve_network)
+    # Feature 1: case_id is now generated up-front (previously generated
+    # after fusion) so the AI/Forensic stages can cache their intermediate
+    # results in Redis under this case_id as they complete. generate_case_id()
+    # has no dependency on any analysis result, so this reorder is safe.
+    case_id = case_manager.generate_case_id()
+
+    fusion_result = risk_fusion.fuse_risk_with_pipeline(
+        case_id, parsed_email, resolve_network=resolve_network
+    )
+
+    ai_result = fusion_result["ai_result"]
+    forensics_result = fusion_result["forensics_result"]
+    url_result = fusion_result["url_result"]
+    attachment_result = fusion_result["attachment_result"]
 
     candidate_ip = forensics_result.get("candidate_source_ip")
     geolocation = ip_geolocation.geolocate_ip(candidate_ip) if resolve_network else ip_geolocation.geolocate_ip(None)
 
-    fusion_result = risk_fusion.fuse_risk(ai_result, forensics_result, url_result, attachment_result)
-
-    case_id = case_manager.generate_case_id()
     correlation_graph = case_manager.build_correlation_graph(
         parsed_email, forensics_result, url_result, attachment_result, geolocation
     )

@@ -14,6 +14,12 @@ then applies a configurable policy to decide ALLOW / QUARANTINE / BLOCK.
     FINAL RISK  (weighted, then boosted by any CRITICAL signal)
 
 Policy engine makes the final action; AI only contributes evidence/score.
+
+Feature 1 (Fusion Pipeline) adds fuse_risk_with_pipeline() below, which
+orchestrates the dual-layer fusion_pipeline (AIStage + ForensicStage,
+run concurrently, cached to Redis) and then applies THIS SAME fuse_risk()
+weighting/decision logic, unchanged, on the results. fuse_risk() itself
+is not modified — existing behavior and correctness are identical.
 """
 
 WEIGHTS = {
@@ -104,4 +110,36 @@ def fuse_risk(ai_result: dict, forensics_result: dict, url_result: dict,
         "weights": WEIGHTS,
         "thresholds": THRESHOLDS,
         "explanation": explanation,
+    }
+
+
+def fuse_risk_with_pipeline(case_id: str, parsed_email: dict, resolve_network: bool = True) -> dict:
+    """
+    Feature 1 entry point. Runs the dual-layer fusion_pipeline (AIStage +
+    ForensicStage concurrently, results cached to Redis), then applies
+    the SAME fuse_risk() above on the results — decision-making logic is
+    identical to before, just fed by the new pipeline.
+
+    Returns everything fuse_risk() returns, PLUS the four raw stage
+    result dicts (ai_result, forensics_result, url_result,
+    attachment_result) merged in, since pipeline.py needs those to build
+    the rest of its response (sender info, correlation graph, etc.).
+    """
+    from app.services import fusion_pipeline
+
+    stage_results = fusion_pipeline.run(case_id, parsed_email, resolve_network=resolve_network)
+
+    fusion_result = fuse_risk(
+        stage_results["ai_result"],
+        stage_results["forensics_result"],
+        stage_results["url_result"],
+        stage_results["attachment_result"],
+    )
+
+    return {
+        **fusion_result,
+        "ai_result": stage_results["ai_result"],
+        "forensics_result": stage_results["forensics_result"],
+        "url_result": stage_results["url_result"],
+        "attachment_result": stage_results["attachment_result"],
     }

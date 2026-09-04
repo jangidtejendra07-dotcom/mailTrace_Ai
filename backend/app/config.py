@@ -69,5 +69,29 @@ class Settings:
     QUARANTINE_RISK_THRESHOLD: int = int(os.getenv("QUARANTINE_RISK_THRESHOLD", "70"))
     QUARANTINE_GMAIL_LABEL: str = os.getenv("QUARANTINE_GMAIL_LABEL", "MailTrace/Quarantined")
 
+    # --- Chain of custody / legal report digital signing (Feature 4) ---
+    # Self-signed cert+key used to sign legal-grade PDF reports so they can
+    # be shown to be unaltered since MailTrace generated them. Auto-generated
+    # on first use if these paths don't exist yet (see cert_generator.py) —
+    # safe for Render's ephemeral filesystem, no manual setup needed.
+    CUSTODY_CERT_PATH: str = os.getenv("CUSTODY_CERT_PATH", "certs/mailtrace.pem")
+    CUSTODY_KEY_PATH: str = os.getenv("CUSTODY_KEY_PATH", "certs/mailtrace.key")
+
+    # --- Feature 3: Geo-Infrastructure Visualization ---
+    # Optional. geo_manager.py aggregates geolocation data ALREADY stored
+    # per-case, so this is not required for the heatmap/clustering to work.
+    # Reserved for a future enrichment pass (fresher ASN/org data).
+    MAXMIND_LICENSE_KEY: str = os.getenv("MAXMIND_LICENSE_KEY", "")
+
+    # --- Feature 2: Dynamic Campaign Graphs (Neo4j) ---
+    NEO4J_URI: str = os.getenv("NEO4J_URI", "")
+    NEO4J_USERNAME: str = os.getenv("NEO4J_USERNAME", "neo4j")
+    NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "")
+
+    # --- Feature 1: Fusion Pipeline (Redis cache for AI/Forensic stage
+    # results). Optional in the sense that a missing/unreachable Redis
+    # never breaks analysis — see fusion_pipeline.py's try/except caching.
+    REDIS_URL: str = os.getenv("REDIS_URL", "")
+
 
 settings = Settings()
