@@ -156,10 +156,15 @@ def gmail_addon_auth(
     if not account:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "This Gmail account is not connected to MailTrace AI. Connect this Gmail account from the MailTrace dashboard first."
+            "This Gmail account is not connected to MailTrace AI. "
+            "Connect this Gmail account from the MailTrace dashboard first."
         )
 
-    user = db.query(User).filter(User.id == account.user_id).first()
+    user = (
+        db.query(User)
+        .filter(User.id == account.user_id)
+        .first()
+    )
 
     if not user:
         raise HTTPException(
@@ -175,7 +180,9 @@ def gmail_addon_auth(
 
     token = create_access_token(
         subject=str(user.id),
-        extra_claims={"purpose": "gmail_addon"}
+        extra_claims={
+            "purpose": "gmail_addon"
+        }
     )
 
     return {
