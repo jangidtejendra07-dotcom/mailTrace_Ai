@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import Base, engine
 from app.routers import analyze, cases, auth, gmail, webhook, addon, geo
-from app.routers.graph import graphql_app
+from app.services.graph import graphql_app
 from app.config import settings
 from app import scheduler
 from app.services import graph_manager
