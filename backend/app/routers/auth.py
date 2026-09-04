@@ -137,72 +137,49 @@ class GmailAddonAuthRequest(BaseModel):
 @router.post("/gmail-addon")
 def gmail_addon_auth(
     payload: GmailAddonAuthRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
-
-    gmail_address = (
-        payload.gmail_address
-        .strip()
-        .lower()
-    )
+    gmail_address = payload.gmail_address.strip().lower()
 
     if not gmail_address:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Gmail address is required",
+            "Gmail address is required"
         )
-
 
     account = (
         db.query(GmailAccount)
-        .filter(
-            GmailAccount.gmail_address == gmail_address
-        )
+        .filter(GmailAccount.gmail_address == gmail_address)
         .first()
     )
-
 
     if not account:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "This Gmail account is not connected to MailTrace AI. "
-            "Connect this Gmail account from the MailTrace dashboard first.",
+            "This Gmail account is not connected to MailTrace AI. Connect this Gmail account from the MailTrace dashboard first."
         )
 
-
-    user = (
-        db.query(User)
-        .filter(
-            User.id == account.user_id
-        )
-        .first()
-    )
-
+    user = db.query(User).filter(User.id == account.user_id).first()
 
     if not user:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            "MailTrace user for this Gmail account was not found",
+            "MailTrace user for this Gmail account was not found"
         )
-
 
     if not user.is_active:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "MailTrace account is disabled",
+            "MailTrace account is disabled"
         )
-
 
     token = create_access_token(
         subject=str(user.id),
-        extra_claims={
-            "purpose": "gmail_addon",
-        },
+        extra_claims={"purpose": "gmail_addon"}
     )
-
 
     return {
         "access_token": token,
         "gmail_address": gmail_address,
-        "user_id": user.id,
+        "user_id": user.id
     }
