@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 import requests
 
 from app.database import get_db
@@ -9,6 +10,10 @@ from app.auth.security import hash_password, verify_password, create_access_toke
 from app.auth.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+
+class GmailAddonAuthRequest(BaseModel):
+    google_access_token: str
 
 
 @router.post(
@@ -93,12 +98,14 @@ def me(
 
 @router.post("/gmail-addon")
 def gmail_addon_auth(
-    google_access_token: str,
+    payload: GmailAddonAuthRequest,
     db: Session = Depends(get_db),
 ):
     """
     Authenticate Gmail Add-on using Google's temporary Gmail access token.
     """
+
+    google_access_token = payload.google_access_token
 
     if not google_access_token:
         raise HTTPException(
