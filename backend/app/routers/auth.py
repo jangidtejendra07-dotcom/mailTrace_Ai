@@ -11,13 +11,25 @@ from app.auth.dependencies import get_current_user
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: UserRegister, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == payload.email.lower()).first()
+@router.post(
+    "/register",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register(
+    payload: UserRegister,
+    db: Session = Depends(get_db),
+):
+    existing = (
+        db.query(User)
+        .filter(User.email == payload.email.lower())
+        .first()
+    )
+
     if existing:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "An account with this email already exists"
+            "An account with this email already exists",
         )
 
     user = User(
@@ -34,39 +46,48 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
 
     return TokenResponse(
         access_token=token,
-        user=UserOut.model_validate(user)
+        user=UserOut.model_validate(user),
     )
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email.lower()).first()
+def login(
+    payload: UserLogin,
+    db: Session = Depends(get_db),
+):
+    user = (
+        db.query(User)
+        .filter(User.email == payload.email.lower())
+        .first()
+    )
 
     if not user or not verify_password(
         payload.password,
-        user.hashed_password
+        user.hashed_password,
     ):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
-            "Incorrect email or password"
+            "Incorrect email or password",
         )
 
     if not user.is_active:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Account is disabled"
+            "Account is disabled",
         )
 
     token = create_access_token(subject=str(user.id))
 
     return TokenResponse(
         access_token=token,
-        user=UserOut.model_validate(user)
+        user=UserOut.model_validate(user),
     )
 
 
 @router.get("/me", response_model=UserOut)
-def me(current_user: User = Depends(get_current_user)):
+def me(
+    current_user: User = Depends(get_current_user),
+):
     return UserOut.model_validate(current_user)
 
 
@@ -76,43 +97,33 @@ def gmail_addon_auth(
     db: Session = Depends(get_db),
 ):
     """
-    Authenticate a Gmail Add-on using Google's temporary Gmail access token.
-
-    Flow:
-        Gmail Add-on
-            -> Google access token
-            -> Gmail API profile
-            -> gmail_address
-            -> GmailAccount
-            -> MailTrace User
-            -> MailTrace JWT
+    Authenticate Gmail Add-on using Google's temporary Gmail access token.
     """
 
     if not google_access_token:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            "Google access token is required"
+            "Google access token is required",
         )
 
-    # Ask Google Gmail API who owns the current Gmail session.
     try:
         response = requests.get(
             "https://gmail.googleapis.com/gmail/v1/users/me/profile",
             headers={
-                "Authorization": f"Bearer {google_access_token}"
+                "Authorization": f"Bearer {google_access_token}",
             },
             timeout=8,
         )
     except requests.RequestException:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            "Could not verify Gmail identity with Google"
+            "Could not verify Gmail identity with Google",
         )
 
     if response.status_code != 200:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
-            "Invalid or expired Google Gmail access token"
+            "Invalid or expired Google Gmail access token",
         )
 
     try:
@@ -120,7 +131,7 @@ def gmail_addon_auth(
     except Exception:
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            "Invalid response from Google Gmail API"
+            "Invalid response from Google Gmail API",
         )
 
     gmail_address = str(
@@ -130,13 +141,9 @@ def gmail_addon_auth(
     if not gmail_address:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
-            "Could not determine Gmail account"
+            "Could not determine Gmail account",
         )
 
-    # IMPORTANT:
-    # We do NOT create a MailTrace user here.
-    # The Gmail account must already be connected through
-    # the normal MailTrace "Connect Gmail" OAuth flow.
     account = (
         db.query(GmailAccount)
         .filter(
@@ -149,7 +156,7 @@ def gmail_addon_auth(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "This Gmail account is not connected to MailTrace AI. "
-            "Connect this Gmail account from the MailTrace dashboard first."
+            "Connect this Gmail account from the MailTrace dashboard first.",
         )
 
     user = (
@@ -161,20 +168,19 @@ def gmail_addon_auth(
     if not user:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
-            "MailTrace user for this Gmail account was not found"
+            "MailTrace user for this Gmail account was not found",
         )
 
     if not user.is_active:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "MailTrace account is disabled"
+            "MailTrace account is disabled",
         )
 
-    # Issue normal MailTrace JWT.
     token = create_access_token(
         subject=str(user.id),
         extra_claims={
-            "purpose": "gmail_addon"
+            "purpose": "gmail_addon",
         },
     )
 
