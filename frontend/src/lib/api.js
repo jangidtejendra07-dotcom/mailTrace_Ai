@@ -70,6 +70,70 @@ export function reportUrl(caseId) {
   return `/api/v1/cases/${caseId}/report?token=${encodeURIComponent(token || '')}`
 }
 
+// Legal-grade report (Feature 4). jurisdiction = 'us' | 'eu'
+export function legalReportUrl(caseId, jurisdiction) {
+  const token = localStorage.getItem('mailtrace_token')
+  return `/api/v1/cases/${caseId}/report/legal/${jurisdiction}?token=${encodeURIComponent(token || '')}`
+}
+
+// ---------- Blockchain evidence (Feature — verify on-chain) ----------
+export async function verifyCaseBlockchain(caseId) {
+  const { data } = await api.get(`/cases/${caseId}/blockchain/verify`)
+  return data
+}
+
+// ---------- Geo Infrastructure (Feature 3) ----------
+export async function getGeoInfra() {
+  const { data } = await api.get('/geo/infra')
+  return data
+}
+
+// ---------- Campaign Graph (Feature 2, GraphQL — mounted at /graphql, NOT
+// under /api/v1, so this uses its own plain axios/fetch call rather than
+// the `api` instance's baseURL) ----------
+const GRAPHQL_URL =
+  typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? '/graphql' // proxied by vercel.json rewrite in production
+    : '/graphql' // proxied by vite.config.js dev server in local dev
+
+async function graphqlQuery(query, variables = {}) {
+  const token = localStorage.getItem('mailtrace_token')
+  const resp = await fetch(GRAPHQL_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ query, variables }),
+  })
+  const json = await resp.json()
+  if (json.errors?.length) {
+    throw new Error(json.errors[0]?.message || 'GraphQL query failed')
+  }
+  return json.data
+}
+
+export async function getFullCampaignGraph() {
+  const data = await graphqlQuery(`
+    query { fullCampaignGraph {
+      nodes { id type label cases }
+      edges { from to relation cases }
+    } }
+  `)
+  return data.fullCampaignGraph
+}
+
+export async function getCaseCampaignGraph(caseId) {
+  const data = await graphqlQuery(
+    `query($caseId: String!) { campaignGraph(caseId: $caseId) {
+      nodes { id type label cases }
+      edges { from to relation cases }
+    } }`,
+    { caseId }
+  )
+  return data.campaignGraph
+}
+
 // ---------- Gmail ----------
 export async function getGmailStatus() {
   const { data } = await api.get('/gmail/status')

@@ -5,6 +5,10 @@
       "destination": "https://mailtrace-ai-backend.onrender.com/api/:path*"
     },
     {
+      "source": "/graphql",
+      "destination": "https://mailtrace-ai-backend.onrender.com/graphql"
+    },
+    {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }

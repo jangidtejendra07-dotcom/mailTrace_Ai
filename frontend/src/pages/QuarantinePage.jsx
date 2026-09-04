@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { ShieldAlert, ChevronRight, Loader2, Undo2 } from 'lucide-react'
 import { listQuarantinedCases, releaseCase } from '../lib/api.js'
+import PageHeader from '../components/PageHeader.jsx'
+
+const POLL_MS = 20000
 
 const decisionStyle = {
   QUARANTINE: 'text-signal-watch bg-signal-watch/10 border-signal-watch/30',
@@ -13,11 +16,15 @@ export default function QuarantinePage() {
   const [error, setError] = useState(null)
   const [releasingId, setReleasingId] = useState(null)
 
-  function load() {
-    listQuarantinedCases().then(setCases).catch(() => setError('Could not reach backend on :8000'))
-  }
+  const load = useCallback(() => {
+    listQuarantinedCases().then(setCases).catch(() => setError('Could not reach the MailTrace backend.'))
+  }, [])
 
-  useEffect(load, [])
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, POLL_MS)
+    return () => clearInterval(interval)
+  }, [load])
 
   async function handleRelease(caseId) {
     setReleasingId(caseId)
@@ -33,16 +40,12 @@ export default function QuarantinePage() {
 
   return (
     <div className="max-w-6xl mx-auto px-8 py-10">
-      <header className="mb-8 flex items-center gap-3">
-        <ShieldAlert className="text-signal-critical" size={22} />
-        <div>
-          <h1 className="font-display text-2xl font-semibold text-slate-50">Quarantined mail</h1>
-          <p className="text-sm text-slate-400 mt-0.5">
-            High-risk mail automatically pulled out of your Gmail inbox. Nothing is deleted —
-            review it here and release it back to your inbox if it's a false positive.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        icon={ShieldAlert}
+        iconClassName="text-signal-critical"
+        title="Quarantine"
+        subtitle="High-risk mail automatically pulled out of your Gmail inbox. Nothing is deleted — review it here and release it back to your inbox if it's a false positive."
+      />
 
       {error && <p className="text-signal-danger text-sm font-mono mb-4">{error}</p>}
 

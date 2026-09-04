@@ -16,7 +16,7 @@ export default function CaseDetailPage() {
   return (
     <div className="max-w-7xl mx-auto px-8 py-10">
       <Link to="/cases" className="inline-flex items-center gap-1 text-xs font-mono text-slate-500 hover:text-trace mb-6">
-        <ChevronLeft size={14} /> Back to Case Vault
+        <ChevronLeft size={14} /> Back to Cases
       </Link>
 
       {error && <p className="text-signal-danger text-sm font-mono">{error}</p>}

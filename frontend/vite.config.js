@@ -7,7 +7,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'https://TUMHARA_APP_NAME.onrender.com', // Ise apne actual Render backend URL se replace karo
+        changeOrigin: true,
+      },
+      '/graphql': {
+        target: 'https://mailtrace-ai-backend.onrender.com', // Ise apne actual Render backend URL se replace karo
         changeOrigin: true,
       },
     },

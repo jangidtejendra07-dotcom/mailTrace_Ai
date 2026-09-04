@@ -1,13 +1,14 @@
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom'
-import { ShieldHalf, Radar, FolderClock, Inbox as InboxIcon, LogOut, Loader2, ShieldAlert } from 'lucide-react'
+import { LayoutDashboard, FolderClock, ShieldAlert, Waypoints, Settings as SettingsIcon, LogOut, Loader2, Radar } from 'lucide-react'
 import { AuthProvider, useAuth } from './context/AuthContext.jsx'
 import LoginPage from './pages/LoginPage.jsx'
 import RegisterPage from './pages/RegisterPage.jsx'
-import UploadPage from './pages/UploadPage.jsx'
-import InboxPage from './pages/InboxPage.jsx'
+import DashboardPage from './pages/DashboardPage.jsx'
 import CasesPage from './pages/CasesPage.jsx'
 import CaseDetailPage from './pages/CaseDetailPage.jsx'
 import QuarantinePage from './pages/QuarantinePage.jsx'
+import CampaignGraphPage from './pages/CampaignGraphPage.jsx'
+import SettingsPage from './pages/SettingsPage.jsx'
 
 function NavItem({ to, icon: Icon, label, end }) {
   return (
@@ -46,10 +47,11 @@ function AppShell() {
           </div>
         </div>
         <nav className="flex flex-col gap-1 px-3 py-4">
-          <NavItem to="/inbox" icon={InboxIcon} label="Live Gmail Inbox" />
-          <NavItem to="/" end icon={ShieldHalf} label="Manual Upload" />
-          <NavItem to="/quarantine" icon={ShieldAlert} label="Quarantined" />
-          <NavItem to="/cases" icon={FolderClock} label="Case Vault" />
+          <NavItem to="/" end icon={LayoutDashboard} label="Dashboard" />
+          <NavItem to="/cases" icon={FolderClock} label="Cases" />
+          <NavItem to="/quarantine" icon={ShieldAlert} label="Quarantine" />
+          <NavItem to="/campaign-graph" icon={Waypoints} label="Campaign Graph" />
+          <NavItem to="/settings" icon={SettingsIcon} label="Settings" />
         </nav>
         <div className="mt-auto px-4 py-4 border-t border-base-700">
           <div className="mb-3">
@@ -67,11 +69,12 @@ function AppShell() {
 
       <main className="flex-1 min-w-0">
         <Routes>
-          <Route path="/" element={<UploadPage />} />
-          <Route path="/inbox" element={<InboxPage />} />
-          <Route path="/quarantine" element={<QuarantinePage />} />
+          <Route path="/" element={<DashboardPage />} />
           <Route path="/cases" element={<CasesPage />} />
           <Route path="/cases/:caseId" element={<CaseDetailPage />} />
+          <Route path="/quarantine" element={<QuarantinePage />} />
+          <Route path="/campaign-graph" element={<CampaignGraphPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
